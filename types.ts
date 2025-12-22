@@ -4,6 +4,16 @@ export interface User {
   handle: string;
   avatarUrl: string;
   role: string;
+  about?: string;
+  location?: string;
+  followers?: number;
+  profileUrl?: string;
+}
+
+export interface DeveloperProfile extends User {
+  following?: number;
+  stars?: number;
+  repositories?: number;
 }
 
 export interface Community {
@@ -11,6 +21,7 @@ export interface Community {
   description: string;
   imageUrl: string;
   members: number;
+  url?: string;
 }
 
 export interface Stat {

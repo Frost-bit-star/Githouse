@@ -9,9 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "recharts": "^3.2.1",
-    "react": "^19.2.0"
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

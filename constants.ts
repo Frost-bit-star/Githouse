@@ -1,11 +1,20 @@
 
 import { User, Community, Stat, ModerationUser, ActivityData } from './types';
 
+export const DEFAULT_GITHUB_USERNAME = 'vercel';
+
 export const STATS_DATA: Stat[] = [
   { value: '500', label: 'Followers', color: 'blue' },
   { value: '500', label: 'Stars', color: 'green' },
   { value: '500', label: 'Following', color: 'orange' },
 ];
+
+export const FALLBACK_PROFILE_DETAILS = {
+  about: 'Software Engineer specializing in React... ',
+  location: 'Remote',
+};
+
+export const DEFAULT_MEMBER_QUERY = 'react maintainer';
 
 export const RECOMMENDED_USERS: User[] = [
   { name: 'Andrew Kim', handle: 'Andi', avatarUrl: 'https://i.pravatar.cc/150?img=1', role: 'Project Author' },
