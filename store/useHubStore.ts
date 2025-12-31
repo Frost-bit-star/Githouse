@@ -1,24 +1,36 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { DEFAULT_GITHUB_USERNAME, DEFAULT_MEMBER_QUERY, FALLBACK_PROFILE_DETAILS } from '../constants';
-import { api } from '../src/api/client';
+import { apiFetch } from '../src/api/client';
 
 export type CommunitySort = 'trending' | 'alphabetical';
 export type MemberSort = 'followers' | 'alphabetical';
 
 interface HubState {
+  // User info
   username: string;
   displayName: string;
-  about: string;
-  location: string;
+  about: string | null;
+  location: string | null;
   avatarUrl: string;
+  userEmail: string;
+  isAuthenticated: boolean;
+
+  // Social
   followedHandles: Record<string, boolean>;
+
+  // Filters
   communityQuery: string;
   communitySort: CommunitySort;
   memberQuery: string;
   memberSort: MemberSort;
-  isAuthenticated: boolean;
-  userEmail: string;
+
+  // Data
+  communities: any[];
+  projects: any[];
+  posts: any[];
+  moderationReports: any[];
+
+  // Actions
   setUsername: (username: string) => void;
   setDisplayName: (displayName: string) => void;
   setAbout: (about: string) => void;
@@ -30,26 +42,45 @@ interface HubState {
   setMemberQuery: (query: string) => void;
   setMemberSort: (sort: MemberSort) => void;
   resetProfile: () => void;
-  login: (params: { username: string; password: string }) => Promise<void>;
+
+  // Auth
+  login: (params: { email: string; password: string }) => Promise<void>;
+  register: (params: { username: string; email: string; password: string; confirmPassword: string }) => Promise<void>;
   logout: () => void;
   fetchCurrentUser: () => Promise<void>;
+
+  // Backend APIs
+  fetchCommunities: () => Promise<void>;
+  fetchProjects: () => Promise<void>;
+  fetchPosts: () => Promise<void>;
+  createPost: (content: string) => Promise<void>;
+  likePost: (postId: string) => Promise<void>;
+  unlikePost: (postId: string) => Promise<void>;
+  fetchModerationReports: () => Promise<void>;
+  suspendUser: (userId: string) => Promise<void>;
+  unsuspendUser: (userId: string) => Promise<void>;
 }
 
 export const useHubStore = create<HubState>()(
   persist(
     (set, get) => ({
-      username: DEFAULT_GITHUB_USERNAME,
-      displayName: 'Developer',
-      about: FALLBACK_PROFILE_DETAILS.about,
-      location: FALLBACK_PROFILE_DETAILS.location,
+      username: '',
+      displayName: '',
+      about: null,
+      location: null,
       avatarUrl: '',
+      userEmail: '',
+      isAuthenticated: false,
       followedHandles: {},
       communityQuery: '',
       communitySort: 'trending',
-      memberQuery: DEFAULT_MEMBER_QUERY,
+      memberQuery: '',
       memberSort: 'followers',
-      isAuthenticated: false,
-      userEmail: '',
+      communities: [],
+      projects: [],
+      posts: [],
+      moderationReports: [],
+
       setUsername: (username) => set({ username }),
       setDisplayName: (displayName) => set({ displayName }),
       setAbout: (about) => set({ about }),
@@ -62,77 +93,171 @@ export const useHubStore = create<HubState>()(
           else next[handle] = true;
           return { followedHandles: next };
         }),
-      setCommunityQuery: (communityQuery) => set({ communityQuery }),
-      setCommunitySort: (communitySort) => set({ communitySort }),
-      setMemberQuery: (memberQuery) => set({ memberQuery }),
-      setMemberSort: (memberSort) => set({ memberSort }),
+      setCommunityQuery: (query) => set({ communityQuery: query }),
+      setCommunitySort: (sort) => set({ communitySort: sort }),
+      setMemberQuery: (query) => set({ memberQuery: query }),
+      setMemberSort: (sort) => set({ memberSort: sort }),
       resetProfile: () =>
         set({
-          username: DEFAULT_GITHUB_USERNAME,
-          about: FALLBACK_PROFILE_DETAILS.about,
-          location: FALLBACK_PROFILE_DETAILS.location,
+          username: '',
+          displayName: '',
+          about: null,
+          location: null,
+          avatarUrl: '',
+          followedHandles: {},
         }),
 
-      // Login with backend
-      login: async ({ username, password }) => {
-        try {
-          const data = await api('/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({ username, password }),
-          });
-
-          localStorage.setItem('accessToken', data.accessToken);
-          localStorage.setItem('refreshToken', data.refreshToken);
-
-          set({
-            isAuthenticated: true,
-            username: data.user.username,
-            displayName: data.user.displayName,
-            userEmail: data.user.email,
-            avatarUrl: data.user.avatarUrl || `https://avatars.githubusercontent.com/${data.user.username}`,
-          });
-        } catch (err) {
-          console.error('Login failed:', err);
-          throw err;
-        }
-      },
-
-      // Logout and clear state
-      logout: () => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+      // Auth
+      login: async ({ email, password }) => {
+        const res = await apiFetch('auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.token) throw new Error('Login failed');
+        localStorage.setItem('token', res.token);
+        localStorage.setItem('refreshToken', res.refreshToken);
         set({
-          isAuthenticated: false,
-          userEmail: '',
-          followedHandles: {},
-          displayName: 'Developer',
-          avatarUrl: '',
+          isAuthenticated: true,
+          username: res.user.username,
+          displayName: res.user.fullName || res.user.username,
+          userEmail: res.user.email,
+          about: res.user.bio || null,
+          location: res.user.location || null,
+          avatarUrl: res.user.avatarUrl || '',
         });
       },
 
-      // Fetch current user from backend
+      register: async ({ username, email, password, confirmPassword }) => {
+        const res = await apiFetch('auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ username, email, password, confirmPassword }),
+        });
+        if (!res.token) throw new Error('Registration failed');
+        localStorage.setItem('token', res.token);
+        localStorage.setItem('refreshToken', res.refreshToken);
+        set({
+          isAuthenticated: true,
+          username: res.user.username,
+          displayName: res.user.fullName || res.user.username,
+          userEmail: res.user.email,
+          about: res.user.bio || null,
+          location: res.user.location || null,
+          avatarUrl: res.user.avatarUrl || '',
+        });
+      },
+
+      logout: () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        set({
+          isAuthenticated: false,
+          username: '',
+          displayName: '',
+          userEmail: '',
+          about: null,
+          location: null,
+          avatarUrl: '',
+          followedHandles: {},
+        });
+      },
+
       fetchCurrentUser: async () => {
         try {
-          const data = await api('/auth/me');
+          const res = await apiFetch('auth/me', {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          });
           set({
             isAuthenticated: true,
-            username: data.username,
-            displayName: data.displayName,
-            userEmail: data.email,
-            avatarUrl: data.avatarUrl || `https://avatars.githubusercontent.com/${data.username}`,
+            username: res.user.username,
+            displayName: res.user.fullName || res.user.username,
+            userEmail: res.user.email,
+            about: res.user.bio || null,
+            location: res.user.location || null,
+            avatarUrl: res.user.avatarUrl || '',
           });
-        } catch (err) {
-          console.warn('Failed to fetch current user:', err);
+        } catch {
           set({ isAuthenticated: false });
         }
       },
+
+      // Backend API integration
+      fetchCommunities: async () => {
+        const res = await apiFetch('communities', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        set({ communities: res.communities || [] });
+      },
+
+      fetchProjects: async () => {
+        const res = await apiFetch('projects', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        set({ projects: res.projects || [] });
+      },
+
+      fetchPosts: async () => {
+        const res = await apiFetch('posts', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        set({ posts: res.posts || [] });
+      },
+
+      createPost: async (content) => {
+        await apiFetch('posts', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          body: JSON.stringify({ content }),
+        });
+        get().fetchPosts();
+      },
+
+      likePost: async (postId) => {
+        await apiFetch(`posts/${postId}/like`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        get().fetchPosts();
+      },
+
+      unlikePost: async (postId) => {
+        await apiFetch(`posts/${postId}/like`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        get().fetchPosts();
+      },
+
+      fetchModerationReports: async () => {
+        const res = await apiFetch('moderation/reports', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        set({ moderationReports: res.reports || [] });
+      },
+
+      suspendUser: async (userId) => {
+        await apiFetch(`moderation/users/${userId}/suspend`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        get().fetchModerationReports();
+      },
+
+      unsuspendUser: async (userId) => {
+        await apiFetch(`moderation/users/${userId}/unsuspend`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        get().fetchModerationReports();
+      },
     }),
     {
-      name: 'devhub-state',
+      name: 'hub-state',
       partialize: (state) => ({
         username: state.username,
+        displayName: state.displayName,
         about: state.about,
         location: state.location,
+        avatarUrl: state.avatarUrl,
         followedHandles: state.followedHandles,
         communityQuery: state.communityQuery,
         communitySort: state.communitySort,
@@ -140,8 +265,6 @@ export const useHubStore = create<HubState>()(
         memberSort: state.memberSort,
         isAuthenticated: state.isAuthenticated,
         userEmail: state.userEmail,
-        displayName: state.displayName,
-        avatarUrl: state.avatarUrl,
       }),
     }
   )

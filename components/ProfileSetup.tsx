@@ -1,7 +1,6 @@
-
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { DeveloperProfile, Stat, User } from '../types';
-import { DEFAULT_GITHUB_USERNAME, FALLBACK_PROFILE_DETAILS, RECOMMENDED_USERS, STATS_DATA } from '../constants';
+import type { Stat, DeveloperProfile } from '../types';
+import { RECOMMENDED_USERS, STATS_DATA, DEFAULT_GITHUB_USERNAME, FALLBACK_PROFILE_DETAILS } from '../constants';
 import { fetchGitHubUser } from '../services/github';
 import { useHubStore } from '../store/useHubStore';
 
@@ -20,18 +19,41 @@ const StatCard: React.FC<{ stat: Stat }> = ({ stat }) => {
 };
 
 const ProfileSetup: React.FC = () => {
-  const username = useHubStore((state) => state.username);
-  const setUsername = useHubStore((state) => state.setUsername);
-  const about = useHubStore((state) => state.about);
-  const setAbout = useHubStore((state) => state.setAbout);
-  const location = useHubStore((state) => state.location);
-  const setLocation = useHubStore((state) => state.setLocation);
-  const followedHandles = useHubStore((state) => state.followedHandles);
-  const toggleFollow = useHubStore((state) => state.toggleFollow);
+  const {
+    username,
+    setUsername,
+    about,
+    setAbout,
+    location,
+    setLocation,
+    avatarUrl,
+    toggleFollow,
+    followedHandles,
+    fetchCurrentUser,
+    userEmail,
+    // Add a new store method to sync profile to backend
+    setDisplayName,
+  } = useHubStore((state) => ({
+    username: state.username,
+    setUsername: state.setUsername,
+    about: state.about,
+    setAbout: state.setAbout,
+    location: state.location,
+    setLocation: state.setLocation,
+    avatarUrl: state.avatarUrl,
+    toggleFollow: state.toggleFollow,
+    followedHandles: state.followedHandles,
+    fetchCurrentUser: state.fetchCurrentUser,
+    userEmail: state.userEmail,
+    setDisplayName: state.setDisplayName,
+  }));
 
   const [profile, setProfile] = useState<DeveloperProfile | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const activeHandle = profile?.handle ?? username ?? DEFAULT_GITHUB_USERNAME;
+  const isFollowingProfile = Boolean(activeHandle && followedHandles[activeHandle]);
 
   const synchronizedStats: Stat[] = useMemo(() => {
     if (!profile) return STATS_DATA;
@@ -42,17 +64,36 @@ const ProfileSetup: React.FC = () => {
     ];
   }, [profile]);
 
-  const loadProfile = useCallback(async (targetUsername: string) => {
+  const loadAndSyncProfile = useCallback(async (targetUsername: string) => {
     if (!targetUsername) return;
     try {
       setStatus('loading');
       setErrorMessage(null);
+
+      // Fetch from GitHub
       const data = await fetchGitHubUser(targetUsername.trim());
       setProfile(data);
+
+      // Update local store
       setAbout(data?.about ?? FALLBACK_PROFILE_DETAILS.about);
       setLocation(data?.location ?? FALLBACK_PROFILE_DETAILS.location);
+      setDisplayName(data?.fullName ?? data?.handle ?? targetUsername);
+
+      // Sync to backend (via store login/session API)
+      await fetch('/api/profile/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: targetUsername,
+          fullName: data.fullName,
+          bio: data.about,
+          location: data.location,
+          avatarUrl: data.avatarUrl,
+        }),
+      });
+
       setStatus('idle');
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       setStatus('error');
       setErrorMessage('Unable to load GitHub profile. Showing defaults.');
@@ -60,19 +101,17 @@ const ProfileSetup: React.FC = () => {
       setAbout(FALLBACK_PROFILE_DETAILS.about);
       setLocation(FALLBACK_PROFILE_DETAILS.location);
     }
-  }, []);
+  }, [setAbout, setLocation, setDisplayName]);
 
+  // Load profile on mount or when username changes
   useEffect(() => {
-    loadProfile(username || DEFAULT_GITHUB_USERNAME);
-  }, [loadProfile, username]);
-
-  const activeHandle = profile?.handle ?? username ?? DEFAULT_GITHUB_USERNAME;
-  const isFollowingProfile = Boolean(activeHandle && followedHandles[activeHandle]);
+    loadAndSyncProfile(username || DEFAULT_GITHUB_USERNAME);
+  }, [loadAndSyncProfile, username]);
 
   return (
     <div className="bg-brand-gray p-6 rounded-lg border border-brand-gray-light">
       <h2 className="text-xl font-bold text-white mb-1">Find Your Filter Profile</h2>
-      <p className="text-sm text-gray-400 mb-6">Pull live stats from GitHub and fine-tune your story.</p>
+      <p className="text-sm text-gray-400 mb-6">Pull live stats from GitHub and sync with your account.</p>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
         <div className="flex-1">
@@ -85,7 +124,7 @@ const ProfileSetup: React.FC = () => {
           />
         </div>
         <button
-          onClick={() => loadProfile(username ?? DEFAULT_GITHUB_USERNAME)}
+          onClick={() => loadAndSyncProfile(username ?? DEFAULT_GITHUB_USERNAME)}
           className="bg-brand-blue text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-60"
           disabled={status === 'loading'}
         >
@@ -93,9 +132,7 @@ const ProfileSetup: React.FC = () => {
         </button>
       </div>
 
-      {errorMessage && (
-        <p className="text-xs text-red-400 mb-4">{errorMessage}</p>
-      )}
+      {errorMessage && <p className="text-xs text-red-400 mb-4">{errorMessage}</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left Side: Stats and About */}
@@ -130,56 +167,46 @@ const ProfileSetup: React.FC = () => {
 
         {/* Right Side: Recommendations */}
         <div className="bg-brand-gray-dark p-4 rounded-lg">
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-sm font-semibold text-white">Recommended for You</h3>
-                <div className="flex items-center gap-3">
-                  {profile?.profileUrl && (
-                    <a
-                      href={profile.profileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-brand-blue hover:underline"
-                    >
-                      View GitHub
-                    </a>
-                  )}
-                  <button
-                    onClick={() => toggleFollow(activeHandle)}
-                    className={`text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
-                      isFollowingProfile
-                        ? 'border-brand-green text-brand-green'
-                        : 'border-brand-blue text-brand-blue'
-                    }`}
-                  >
-                    {isFollowingProfile ? 'Following' : 'Follow'}
-                  </button>
-                </div>
-            </div>
-            <div className="space-y-1 text-sm text-gray-400 mb-4">
-              <p>{(profile?.followers ?? 3200).toLocaleString()} Followers</p>
-              <p>{(profile?.following ?? 1500).toLocaleString()} Following</p>
-            </div>
-
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Follow Their Crowds</h4>
-            <div className="flex space-x-2">
-                 {RECOMMENDED_USERS.map(user => (
-                    <div key={user.handle} className="text-center">
-                        <img src={user.avatarUrl} alt={user.name} className="h-10 w-10 rounded-full mx-auto" />
-                        <span className="text-xs text-gray-400 block mt-1">{user.name}</span>
-                    </div>
-                ))}
-                <div className="h-10 w-10 rounded-full bg-brand-gray-light flex items-center justify-center text-xs font-bold text-white">+8</div>
-            </div>
-            <button
-              onClick={() => toggleFollow(activeHandle)}
-              className={`mt-4 w-full font-semibold py-2 px-4 rounded-lg transition-colors text-sm ${
-                isFollowingProfile
-                  ? 'bg-brand-green/30 text-brand-green hover:bg-brand-green/40'
-                  : 'bg-brand-gray-light text-white hover:bg-gray-600'
-              }`}
-            >
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-sm font-semibold text-white">Recommended for You</h3>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => toggleFollow(activeHandle)}
+                className={`text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
+                  isFollowingProfile
+                    ? 'border-brand-green text-brand-green'
+                    : 'border-brand-blue text-brand-blue'
+                }`}
+              >
                 {isFollowingProfile ? 'Following' : 'Follow'}
-            </button>
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1 text-sm text-gray-400 mb-4">
+            <p>{(profile?.followers ?? 3200).toLocaleString()} Followers</p>
+            <p>{(profile?.following ?? 1500).toLocaleString()} Following</p>
+          </div>
+
+          <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Follow Their Crowds</h4>
+          <div className="flex space-x-2">
+            {RECOMMENDED_USERS.map(user => (
+              <div key={user.handle} className="text-center">
+                <img src={user.avatarUrl} alt={user.name} className="h-10 w-10 rounded-full mx-auto" />
+                <span className="text-xs text-gray-400 block mt-1">{user.name}</span>
+              </div>
+            ))}
+            <div className="h-10 w-10 rounded-full bg-brand-gray-light flex items-center justify-center text-xs font-bold text-white">+8</div>
+          </div>
+          <button
+            onClick={() => toggleFollow(activeHandle)}
+            className={`mt-4 w-full font-semibold py-2 px-4 rounded-lg transition-colors text-sm ${
+              isFollowingProfile
+                ? 'bg-brand-green/30 text-brand-green hover:bg-brand-green/40'
+                : 'bg-brand-gray-light text-white hover:bg-gray-600'
+            }`}
+          >
+            {isFollowingProfile ? 'Following' : 'Follow'}
+          </button>
         </div>
       </div>
     </div>

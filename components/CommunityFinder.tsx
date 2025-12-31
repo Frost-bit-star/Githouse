@@ -1,23 +1,27 @@
-
-import React, { useEffect, useMemo, useState } from 'react';
-import type { Community } from '../types';
-import { COMMUNITY_DATA, DEFAULT_GITHUB_USERNAME } from '../constants';
-import { fetchGitHubRepos } from '../services/github';
+import React, { useEffect, useMemo } from 'react';
 import { useHubStore } from '../store/useHubStore';
+import type { Community } from '../types';
 
 const CommunityCard: React.FC<{ community: Community }> = ({ community }) => (
     <div className="bg-brand-gray-light rounded-lg overflow-hidden group">
-        <img src={community.imageUrl} alt={community.name} className="h-24 w-full object-cover"/>
+        <img src={community.imageUrl} alt={community.name} className="h-24 w-full object-cover" />
         <div className="p-4">
             <h4 className="text-sm font-bold text-white truncate">{community.name}</h4>
             <p className="text-xs text-gray-400 truncate mt-1">{community.description}</p>
             <div className="flex items-center justify-between mt-4">
                 <div className="flex -space-x-2">
-                    <img className="inline-block h-6 w-6 rounded-full ring-2 ring-brand-gray-light" src="https://i.pravatar.cc/150?img=20" alt=""/>
-                    <img className="inline-block h-6 w-6 rounded-full ring-2 ring-brand-gray-light" src="https://i.pravatar.cc/150?img=21" alt=""/>
-                    <img className="inline-block h-6 w-6 rounded-full ring-2 ring-brand-gray-light" src="https://i.pravatar.cc/150?img=22" alt=""/>
+                    {community.membersAvatars?.map((url, idx) => (
+                        <img
+                            key={idx}
+                            className="inline-block h-6 w-6 rounded-full ring-2 ring-brand-gray-light"
+                            src={url}
+                            alt=""
+                        />
+                    ))}
                 </div>
-                <button className="bg-brand-blue text-white text-xs font-semibold py-1 px-3 rounded-full hover:bg-blue-600 transition-colors">Join</button>
+                <button className="bg-brand-blue text-white text-xs font-semibold py-1 px-3 rounded-full hover:bg-blue-600 transition-colors">
+                    Join
+                </button>
             </div>
         </div>
     </div>
@@ -30,47 +34,31 @@ const quickFilters = [
 ];
 
 const CommunityFinder: React.FC = () => {
-    const communityQuery = useHubStore((state) => state.communityQuery);
-    const setCommunityQuery = useHubStore((state) => state.setCommunityQuery);
-    const communitySort = useHubStore((state) => state.communitySort);
-    const setCommunitySort = useHubStore((state) => state.setCommunitySort);
-
-    const [communities, setCommunities] = useState<Community[]>(COMMUNITY_DATA);
-    const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+    const {
+        communities,
+        fetchCommunities,
+        communityQuery,
+        setCommunityQuery,
+        communitySort,
+        setCommunitySort,
+    } = useHubStore((state) => ({
+        communities: state.communities,
+        fetchCommunities: state.fetchCommunities,
+        communityQuery: state.communityQuery,
+        setCommunityQuery: state.setCommunityQuery,
+        communitySort: state.communitySort,
+        setCommunitySort: state.setCommunitySort,
+    }));
 
     useEffect(() => {
-        let mounted = true;
-        (async () => {
-            try {
-                setStatus('loading');
-                const repos = await fetchGitHubRepos(DEFAULT_GITHUB_USERNAME);
-                if (!mounted) return;
-                if (repos.length) {
-                    setCommunities(repos);
-                }
-                setStatus('idle');
-            } catch (error) {
-                console.error(error);
-                if (!mounted) return;
-                setStatus('error');
-                setCommunities(COMMUNITY_DATA);
-            }
-        })();
-        return () => {
-            mounted = false;
-        };
-    }, []);
-
-    const helperText = useMemo(() => {
-        if (status === 'loading') return 'Syncing live repos from GitHub...';
-        if (status === 'error') return 'Using fallback communities while GitHub is unavailable.';
-        return 'Coles timq OnBlue! & chares.predies';
-    }, [status]);
+        fetchCommunities();
+    }, [fetchCommunities]);
 
     const filteredCommunities = useMemo(() => {
-        const dataset = communities.filter((community) =>
-            community.name.toLowerCase().includes(communityQuery.toLowerCase()) ||
-            community.description.toLowerCase().includes(communityQuery.toLowerCase())
+        const dataset = communities.filter(
+            (community) =>
+                community.name.toLowerCase().includes(communityQuery.toLowerCase()) ||
+                community.description.toLowerCase().includes(communityQuery.toLowerCase())
         );
 
         if (communitySort === 'alphabetical') {
@@ -89,12 +77,12 @@ const CommunityFinder: React.FC = () => {
                         className="bg-brand-gray-dark border border-brand-gray-light rounded-full px-4 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-blue"
                         placeholder="Search by stack or topic"
                         value={communityQuery}
-                        onChange={(event) => setCommunityQuery(event.target.value)}
+                        onChange={(e) => setCommunityQuery(e.target.value)}
                     />
                     <select
                         className="bg-brand-gray-dark border border-brand-gray-light rounded-full px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-blue"
                         value={communitySort}
-                        onChange={(event) => setCommunitySort(event.target.value as 'trending' | 'alphabetical')}
+                        onChange={(e) => setCommunitySort(e.target.value as 'trending' | 'alphabetical')}
                     >
                         <option value="trending">Sort: Trending</option>
                         <option value="alphabetical">Sort: A-Z</option>
@@ -122,9 +110,9 @@ const CommunityFinder: React.FC = () => {
                     Clear filters
                 </button>
             </div>
-            <p className="text-sm text-gray-400 mb-6">{helperText}</p>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {filteredCommunities.map(community => (
+                {filteredCommunities.map((community) => (
                     <div key={community.name} className="relative">
                         <CommunityCard community={community} />
                         {community.url && (
@@ -134,7 +122,7 @@ const CommunityFinder: React.FC = () => {
                                 rel="noreferrer"
                                 className="absolute inset-0"
                                 aria-label={`Open ${community.name} on GitHub`}
-                            ></a>
+                            />
                         )}
                     </div>
                 ))}

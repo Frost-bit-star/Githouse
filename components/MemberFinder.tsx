@@ -1,9 +1,6 @@
-
-import React, { useEffect, useMemo, useState } from 'react';
-import type { User } from '../types';
-import { DEFAULT_MEMBER_QUERY, MEMBER_DATA } from '../constants';
-import { searchGitHubUsers } from '../services/github';
+import React, { useEffect, useMemo } from 'react';
 import { useHubStore } from '../store/useHubStore';
+import type { User } from '../types';
 
 const MemberCard: React.FC<{ user: User; isFollowing: boolean; onToggleFollow: () => void }> = ({ user, isFollowing, onToggleFollow }) => (
     <div className="bg-brand-gray-light rounded-lg overflow-hidden group text-center p-4">
@@ -25,53 +22,36 @@ const MemberCard: React.FC<{ user: User; isFollowing: boolean; onToggleFollow: (
 );
 
 const MemberFinder: React.FC = () => {
-    const memberQuery = useHubStore((state) => state.memberQuery);
-    const setMemberQuery = useHubStore((state) => state.setMemberQuery);
-    const memberSort = useHubStore((state) => state.memberSort);
-    const setMemberSort = useHubStore((state) => state.setMemberSort);
-    const followedHandles = useHubStore((state) => state.followedHandles);
-    const toggleFollow = useHubStore((state) => state.toggleFollow);
-
-    const [members, setMembers] = useState<User[]>(MEMBER_DATA);
-    const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+    const {
+        members,
+        fetchMembers,
+        memberQuery,
+        setMemberQuery,
+        memberSort,
+        setMemberSort,
+        followedHandles,
+        toggleFollow,
+    } = useHubStore((state) => ({
+        members: state.members,
+        fetchMembers: state.fetchMembers,
+        memberQuery: state.memberQuery,
+        setMemberQuery: state.setMemberQuery,
+        memberSort: state.memberSort,
+        setMemberSort: state.setMemberSort,
+        followedHandles: state.followedHandles,
+        toggleFollow: state.toggleFollow,
+    }));
 
     useEffect(() => {
-        let mounted = true;
-        const run = setTimeout(async () => {
-            if (!memberQuery.trim()) return;
-            try {
-                setStatus('loading');
-                const users = await searchGitHubUsers(memberQuery.trim());
-                if (!mounted) return;
-                if (users.length) {
-                    setMembers(users);
-                }
-                setStatus('idle');
-            } catch (error) {
-                console.error(error);
-                if (!mounted) return;
-                setStatus('error');
-                setMembers(MEMBER_DATA);
-            }
-        }, 400);
-
-        return () => {
-            mounted = false;
-            clearTimeout(run);
-        };
-    }, [memberQuery]);
-
-    const helperText = useMemo(() => {
-        if (status === 'loading') return 'Searching GitHub talent...';
-        if (status === 'error') return 'Showing featured members while GitHub is offline.';
-        return 'Ritavi per piamed as regies';
-    }, [status]);
+        fetchMembers(memberQuery);
+    }, [fetchMembers, memberQuery]);
 
     const displayedMembers = useMemo(() => {
-        const dataset = memberQuery.trim() ? members : MEMBER_DATA;
-        const filtered = dataset.filter((user) =>
-            user.name.toLowerCase().includes(memberQuery.toLowerCase()) ||
-            user.role.toLowerCase().includes(memberQuery.toLowerCase())
+        const dataset = memberQuery.trim() ? members : members; // backend already has all members
+        const filtered = dataset.filter(
+            (user) =>
+                user.name.toLowerCase().includes(memberQuery.toLowerCase()) ||
+                user.role.toLowerCase().includes(memberQuery.toLowerCase())
         );
 
         return filtered.sort((a, b) => {
@@ -80,29 +60,34 @@ const MemberFinder: React.FC = () => {
             }
             return a.name.localeCompare(b.name);
         });
-    }, [memberQuery, memberSort, members]);
+    }, [members, memberQuery, memberSort]);
+
+    const helperText = useMemo(() => {
+        if (!members.length) return 'Loading members...';
+        return 'Browse members & filter by role';
+    }, [members]);
 
     return (
         <div className="bg-brand-gray p-6 rounded-lg border border-brand-gray-light">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-bold text-white">Project & Filter Members</h3>
-                 <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2">
                     <input
                         className="bg-brand-gray-dark border border-brand-gray-light rounded-full px-4 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-blue"
-                        placeholder="Search GitHub roles (e.g. Next.js)"
+                        placeholder="Search roles (e.g. Next.js)"
                         value={memberQuery}
-                        onChange={(event) => setMemberQuery(event.target.value)}
+                        onChange={(e) => setMemberQuery(e.target.value)}
                     />
                     <select
                         className="bg-brand-gray-dark border border-brand-gray-light rounded-full px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-blue"
                         value={memberSort}
-                        onChange={(event) => setMemberSort(event.target.value as 'followers' | 'alphabetical')}
+                        onChange={(e) => setMemberSort(e.target.value as 'followers' | 'alphabetical')}
                     >
                         <option value="followers">Sort: Followers</option>
                         <option value="alphabetical">Sort: A-Z</option>
                     </select>
                     <button
-                        onClick={() => setMemberQuery('nextjs maintainer')}
+                        onClick={() => setMemberQuery('nextjs')}
                         className="bg-brand-blue/20 text-brand-blue text-sm font-semibold py-1 px-3 rounded-full"
                     >
                         Quick: Next.js
@@ -111,7 +96,7 @@ const MemberFinder: React.FC = () => {
             </div>
             <p className="text-sm text-gray-400 mb-6">{helperText}</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {displayedMembers.map(user => (
+                {displayedMembers.map((user) => (
                     <div key={user.handle} className="relative">
                         <MemberCard
                             user={user}
@@ -124,8 +109,8 @@ const MemberFinder: React.FC = () => {
                                 target="_blank"
                                 rel="noreferrer"
                                 className="absolute inset-0"
-                                aria-label={`Open ${user.name} on GitHub`}
-                            ></a>
+                                aria-label={`Open ${user.name} profile`}
+                            />
                         )}
                     </div>
                 ))}

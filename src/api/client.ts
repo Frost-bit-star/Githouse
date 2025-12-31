@@ -1,29 +1,32 @@
-// frontend/src/api/client.ts
-export async function api(
-  path: string,
-  options: RequestInit = {}
-): Promise<any> {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+export async function apiFetch(endpoint: string, options: RequestInit = {}) {
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  const token = localStorage.getItem('token');
 
-  const token = localStorage.getItem('accessToken');
-
-  const headers: Record<string, string> = {
+  // Merge headers
+  options.headers = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
   };
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      ...headers,
-      ...(options.headers || {}),
-    },
-  });
+  try {
+    const res = await fetch(`${API_URL}/${endpoint}`, options);
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || 'API request failed');
+    // Try to parse JSON safely
+    let data: any = {};
+    try {
+      data = await res.json();
+    } catch (err) {
+      console.error('Failed to parse JSON from backend', err);
+    }
+
+    if (!res.ok) {
+      throw new Error(data?.message || `API request failed with status ${res.status}`);
+    }
+
+    return data?.data || data; // handle both wrapped and unwrapped responses
+  } catch (err: any) {
+    console.error('API Fetch Error:', err.message);
+    throw err;
   }
-
-  return response.json();
 }

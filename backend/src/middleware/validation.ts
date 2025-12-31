@@ -2,38 +2,48 @@ import { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
 import { AppError } from '../utils/errors.js';
 
+/**
+ * Validates only the keys defined in the schema.
+ * Works with Joi v17+ and avoids crashes for missing paths.
+ */
 export const validateRequest = (schema: Joi.ObjectSchema) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const { error, value } = schema.validate(
-      {
-        body: req.body,
-        params: req.params,
-        query: req.query,
-      },
-      { abortEarly: false }
-    );
+    try {
+      const toValidate: Record<string, any> = {};
 
-    if (error) {
-      const messages = error.details.map((detail) => detail.message).join(', ');
-      throw new AppError(400, messages);
+      // Only validate keys present in the schema
+      const schemaKeys = schema.describe().keys || {};
+      if (schemaKeys.body) toValidate.body = req.body;
+      if (schemaKeys.params) toValidate.params = req.params;
+      if (schemaKeys.query) toValidate.query = req.query;
+
+      const { error, value } = schema.validate(toValidate, { abortEarly: false });
+
+      if (error) {
+        const messages = error.details.map((detail) => detail.message).join(', ');
+        throw new AppError(400, messages);
+      }
+
+      if (value.body) req.body = value.body;
+      if (value.params) req.params = value.params;
+      if (value.query) req.query = value.query;
+
+      next();
+    } catch (err) {
+      next(err);
     }
-
-    req.body = value.body;
-    req.params = value.params;
-    req.query = value.query;
-    next();
   };
 };
 
-// Validation schemas
+// --- Validation Schemas ---
 export const schemas = {
   // Auth schemas
   register: Joi.object({
     body: Joi.object({
+      username: Joi.string().alphanum().min(3).max(30).required(),
       email: Joi.string().email().required(),
       password: Joi.string().min(8).required(),
       confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
-      username: Joi.string().alphanum().min(3).max(30).required(),
       fullName: Joi.string().optional(),
     }),
   }),
