@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_GITHUB_USERNAME, DEFAULT_MEMBER_QUERY, FALLBACK_PROFILE_DETAILS } from '../constants';
+import { api } from '../src/api/client';
 
 export type CommunitySort = 'trending' | 'alphabetical';
 export type MemberSort = 'followers' | 'alphabetical';
@@ -29,8 +30,9 @@ interface HubState {
   setMemberQuery: (query: string) => void;
   setMemberSort: (sort: MemberSort) => void;
   resetProfile: () => void;
-  login: (params: { username: string; displayName: string; email: string }) => void;
+  login: (params: { username: string; password: string }) => Promise<void>;
   logout: () => void;
+  fetchCurrentUser: () => Promise<void>;
 }
 
 export const useHubStore = create<HubState>()(
@@ -56,11 +58,8 @@ export const useHubStore = create<HubState>()(
       toggleFollow: (handle) =>
         set((state) => {
           const next = { ...state.followedHandles };
-          if (next[handle]) {
-            delete next[handle];
-          } else {
-            next[handle] = true;
-          }
+          if (next[handle]) delete next[handle];
+          else next[handle] = true;
           return { followedHandles: next };
         }),
       setCommunityQuery: (communityQuery) => set({ communityQuery }),
@@ -73,24 +72,60 @@ export const useHubStore = create<HubState>()(
           about: FALLBACK_PROFILE_DETAILS.about,
           location: FALLBACK_PROFILE_DETAILS.location,
         }),
-      login: ({ username, displayName, email }) => {
-        const normalizedUsername = username || DEFAULT_GITHUB_USERNAME;
-        set({
-          isAuthenticated: true,
-          username: normalizedUsername,
-          displayName: displayName || 'Developer',
-          userEmail: email,
-          avatarUrl: `https://avatars.githubusercontent.com/${normalizedUsername}`,
-        });
+
+      // Login with backend
+      login: async ({ username, password }) => {
+        try {
+          const data = await api('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password }),
+          });
+
+          localStorage.setItem('accessToken', data.accessToken);
+          localStorage.setItem('refreshToken', data.refreshToken);
+
+          set({
+            isAuthenticated: true,
+            username: data.user.username,
+            displayName: data.user.displayName,
+            userEmail: data.user.email,
+            avatarUrl: data.user.avatarUrl || `https://avatars.githubusercontent.com/${data.user.username}`,
+          });
+        } catch (err) {
+          console.error('Login failed:', err);
+          throw err;
+        }
       },
-      logout: () =>
+
+      // Logout and clear state
+      logout: () => {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
         set({
           isAuthenticated: false,
           userEmail: '',
           followedHandles: {},
           displayName: 'Developer',
           avatarUrl: '',
-        }),
+        });
+      },
+
+      // Fetch current user from backend
+      fetchCurrentUser: async () => {
+        try {
+          const data = await api('/auth/me');
+          set({
+            isAuthenticated: true,
+            username: data.username,
+            displayName: data.displayName,
+            userEmail: data.email,
+            avatarUrl: data.avatarUrl || `https://avatars.githubusercontent.com/${data.username}`,
+          });
+        } catch (err) {
+          console.warn('Failed to fetch current user:', err);
+          set({ isAuthenticated: false });
+        }
+      },
     }),
     {
       name: 'devhub-state',
